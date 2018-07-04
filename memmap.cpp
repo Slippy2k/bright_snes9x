@@ -3934,6 +3934,20 @@ void CMemory::ApplyROMFixes (void)
 			dma_kludge = 1;
 	}
 
+	if (!Settings.DisableGameSpecificHacks)
+	{
+		// libretro: nmi delay timing
+		if (match_na("PHALANX"))
+		{
+			unsigned char patch[] = {0x10,0x42,0x30,0xfb,0xad,0x10,0x42,0x10,0xfb};
+			if(memcmp(patch,Memory.ROM+0x116,sizeof(patch))==0)
+			{
+				// skip wait
+				Memory.ROM[0x11e]=0x00;
+			}
+		}
+	}
+
 	//// SRAM initial value
 
 	if (!Settings.DisableGameSpecificHacks)
