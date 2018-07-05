@@ -5,7 +5,7 @@ sandbox of www.github.com/libretro/snes9x (pre-1.56 rebase) for testing experime
 
 dropoff 6 preview:
 - add byuu's hitachi dsp chipset code (cx4)
-- Phalanx nmi hack
+- backport Phalanx fix
 
 
 dropoff 5:
