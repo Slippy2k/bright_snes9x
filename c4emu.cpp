@@ -955,7 +955,7 @@ void S9xInitC4 (void)
 
 uint8 S9xGetC4 (uint16 Address)
 {
-	if(log_cb)log_cb(RETRO_LOG_INFO,"CX4 read %X = %X\n",Address,Memory.C4RAM[Address - 0x6000]);
+	//if(log_cb)log_cb(RETRO_LOG_INFO,"CX4 read %X = %X\n",Address,Memory.C4RAM[Address - 0x6000]);
 	if (Address == 0x7f5e)
 		return (0);
 
@@ -964,7 +964,7 @@ uint8 S9xGetC4 (uint16 Address)
 
 void S9xSetC4 (uint8 byte, uint16 Address)
 {
-	if(log_cb)log_cb(RETRO_LOG_INFO,"CX4 write %X = %X\n",Address,byte);
+	//if(log_cb)log_cb(RETRO_LOG_INFO,"CX4 write %X = %X\n",Address,byte);
 	Memory.C4RAM[Address - 0x6000] = byte;
 
 	if (Address == 0x7f4f)

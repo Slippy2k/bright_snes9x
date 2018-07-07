@@ -10,25 +10,12 @@ extern retro_log_printf_t log_cb;
 #include "necdsp.h"
 #include "dsp.h"
 
-#ifdef WINDOWS
-typedef __int64          Long64_t;  //Portable signed long integer 8 bytes
-typedef unsigned __int64 ULong64_t; //Portable unsigned long integer 8 bytes
-#else
-typedef long long          Long64_t; //Portable signed long integer 8 bytes
-typedef unsigned long long ULong64_t;//Portable unsigned long integer 8 byte
-#endif
+typedef uint32 uint24;
+typedef int32 int24;
 
-#define uint8 unsigned char
-#define uint16 unsigned short
-#define uint24 unsigned int
-#define uint32 unsigned int
+#define UINT24(a) ((a) & 0x00ffffff)
+#define INT24(a) ((((int32)(a))<<8)>>8)
 
-#define int8 char
-#define int16 short
-#define int32 int
-
-#define UINT24(a) ((a) & 0xffffff)
-#define INT24(a) ((((int)(a))<<8)>>8)
 
 static uint8 dataROM[0xc00];
 static uint8 *dataRAM;
@@ -350,7 +337,7 @@ static void cx4_instruction() {
     //cmpr a<<n,ri
     int result = cx4_ri() - cx4_sa();
     regs.n = result & 0x800000;
-    regs.z = (uint24)result == 0;
+    regs.z = ((uint24)result) == 0;
     regs.c = result >= 0;
   }
 
@@ -359,7 +346,7 @@ static void cx4_instruction() {
     //cmp a<<n,ri
     int result = cx4_sa() - cx4_ri();
     regs.n = result & 0x800000;
-    regs.z = (uint24)result == 0;
+    regs.z = ((uint24)result) == 0;
     regs.c = result >= 0;
   }
 
@@ -418,7 +405,7 @@ static void cx4_instruction() {
   else if(op_ffff == 0x7000) {
     //0111 0000 0000 0000
     //rdrom
-    regs.romdata = (dataROM[(regs.a & 0x3ff)*3+0]) | ((dataROM[(regs.a & 0x3ff)*3+1])<<8) | ((dataROM[(regs.a & 0x3ff)*3+2])<<16);
+    regs.romdata = READ_3WORD(dataROM+(regs.a & 0x3ff)*3);
   }
 
   else if(op_ff00 == 0x7c00) {
@@ -468,8 +455,8 @@ static void cx4_instruction() {
   else if(op_fb00 == 0x9800) {
     //1001 1.00 .... ....
     //mul a,ri
-    Long64_t x = INT24(regs.a);
-    Long64_t y = INT24(cx4_ri());
+    int64 x = INT24(regs.a);
+    int64 y = INT24(cx4_ri());
     x *= y;
     regs.accl = UINT24(x >>  0ull);
     regs.acch = UINT24(x >> 24ull);
@@ -604,39 +591,33 @@ static void cx4_power() {
 
 void cx4dsp_enter() {
 	// lorom conversion by Alcaro
-	cx4_programOffset = dataRAM[0x1f49] | (dataRAM[0x1f4a]<<8) | (dataRAM[0x1f4b]<<16);
+	cx4_programOffset = READ_3WORD(dataRAM+0x1f49);
 	cx4_programOffset=((cx4_programOffset&0x7F0000)>>1|(cx4_programOffset&0x7FFF));
 
-	cx4_pageNumber = dataRAM[0x1f4d] | (dataRAM[0x1f4e]&0x7f);
+	cx4_pageNumber = READ_WORD(dataRAM+0x1f4d) & 0x7fff;
 
 	regs.pc = cx4_pageNumber*256 + dataRAM[0x1f4f];
 	regs.halt = false;
 	regs.cachePage = 0;
 		
-	if(log_cb) log_cb(RETRO_LOG_INFO,"CX4 command %06X\n",regs.pc);
+	//if(log_cb) log_cb(RETRO_LOG_INFO,"CX4 command %06X\n",regs.pc);
 
 	for(int lcv=0; lcv<16; lcv++)
-	{
-		regs.gpr[lcv] = (dataRAM[0x1f80+lcv*3]<<0) | (dataRAM[0x1f81+lcv*3]<<8) | (dataRAM[0x1f82+lcv*3]<<16);
-	}
+		WRITE_3WORD(regs.gpr+lcv, READ_3WORD(dataRAM+0x1f80+lcv*3));
 
   while (!regs.halt) {
 		//if(log_cb) log_cb(RETRO_LOG_INFO,"=== %X\n",regs.pc);
 
-		cx4_opcode = Memory.ROM[cx4_programOffset+(regs.pc*2)+0] | (Memory.ROM[cx4_programOffset+(regs.pc*2)+1]<<8);
+		cx4_opcode = READ_WORD(Memory.ROM+cx4_programOffset+regs.pc*2);
 
 		cx4_nextpc();
 		cx4_instruction();
   }
 
-	if(log_cb) log_cb(RETRO_LOG_INFO,"=== done\n");
+	//if(log_cb) log_cb(RETRO_LOG_INFO,"=== done\n");
 
 	for(int lcv=0; lcv<16; lcv++)
-	{
-		dataRAM[0x1f80+lcv*3] = (regs.gpr[lcv]>>0)&0xff;
-		dataRAM[0x1f81+lcv*3] = (regs.gpr[lcv]>>8)&0xff;
-		dataRAM[0x1f82+lcv*3] = (regs.gpr[lcv]>>16)&0xff;
-	}
+		WRITE_3WORD(dataRAM+0x1f80+lcv*3, regs.gpr[lcv]);
 }
 
 static bool LoadBIOS(const char *biosname, size_t data_size)
@@ -693,7 +674,7 @@ void cx4dsp_load()
 	if(Settings.C4)
 	{
 		cx4dsp_active = LoadBIOS("cx4.bin",0xc00);
-		dataRAM = Memory.C4RAM;
+		dataRAM = (uint8 *) Memory.C4RAM;
 	}
 
 	if(cx4dsp_active) {

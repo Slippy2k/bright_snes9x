@@ -225,7 +225,6 @@
 #include "libretro/libretro.h"
 extern retro_log_printf_t log_cb;
 #endif
-int dma_kludge;
 
 void S9xAppendMapping(struct retro_memory_descriptor *desc);
 
@@ -3923,15 +3922,6 @@ void CMemory::ApplyROMFixes (void)
 			Timings.DMACPUSync = 20;
 			printf("DMA sync: %d\n", Timings.DMACPUSync);
 		}
-	}
-
-	if (!Settings.DisableGameSpecificHacks)
-	{
-		dma_kludge = 0;
-
-		// libretro: possible timing problem
-		if (match_na("K A T ' S R U N"))
-			dma_kludge = 1;
 	}
 
 	//// SRAM initial value
