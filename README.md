@@ -6,6 +6,8 @@ sandbox of www.github.com/libretro/snes9x (pre-1.56 rebase) for testing experime
 dropoff 6 preview:
 - add byuu's hitachi dsp chipset code (cx4)
 - backport Phalanx fix
+- remove Kat's Run DMA kludge (Phalanx fix)
+- add "Raise Sprite Limit" feature (works on dsp4 bios also)
 
 
 dropoff 5:
