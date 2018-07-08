@@ -232,7 +232,7 @@ struct SGFX
 		{
 			int8	Sprite;
 			uint8	Line;
-		}	OBJ[32];
+		}	OBJ[128];
 	}	OBJLines[SNES_HEIGHT_EXTENDED];
 
 #ifdef GFX_MULTI_FORMAT

@@ -1312,6 +1312,7 @@ static void DSP4_OP0B (bool8 *draw, int16 sp_x, int16 sp_y, int16 sp_attr, bool8
 		*draw = 0;
 
 	// SR = 0x80
+	//*draw = 0;
 
 	if (*draw)
 	{

@@ -130,6 +130,13 @@ int logged[16384];
 ostringstream output;
 
 void disassemble() {
+	static int start = 0;
+
+	if(Registers.PC.W.xPC==0xddc8) start = 1;
+	//if(regs.pc==0x0000) start = 0;
+	if(!start) return;
+
+
 	uint14 ip = UINT14(regs.pc);
 	if(logged[ip] == 1) return;
 	logged[ip] = 1;
@@ -143,6 +150,8 @@ void disassemble() {
 
 	output.clear();
 	output.str("");
+
+	output << std::uppercase << std::setfill('0') << std::setw(4) << std::hex << Registers.PC.W.xPC << "  ";
 	output << std::uppercase << std::setfill('0') << std::setw(4) << std::hex << ip << "  ";
 
   if(type == 0 || type == 1) {  //OP,RT
@@ -832,6 +841,51 @@ static bool LoadBIOS(const char *biosname, size_t program_size, size_t data_size
    return (r);
 }
 
+void dsp4_sprite_limit()
+{
+	if(necdsp_active)
+	{
+		extern bool reduce_sprite_flicker;
+
+		if(reduce_sprite_flicker)
+		{
+			// op03
+			if(programROM[0x528]==0x43 && programROM[0x529]==0x48 && programROM[0x52a]==0xc8)
+			{
+				programROM[0x528]=0xc3;
+				programROM[0x529]=0xdf;
+				programROM[0x52a]=0xdf;
+			}
+
+			// op0e
+			if(programROM[0x53d]==0x03 && programROM[0x53e]==0x04 && programROM[0x53f]==0xc4)
+			{
+				programROM[0x53d]=0xc3;
+				programROM[0x53e]=0xdf;
+				programROM[0x53f]=0xdf;
+			}
+		}
+		else
+		{
+			// op03
+			if(programROM[0x528]==0xc3 && programROM[0x529]==0xdf && programROM[0x52a]==0xdf)
+			{
+				programROM[0x528]=0x43;
+				programROM[0x529]=0x48;
+				programROM[0x52a]=0xc8;
+			}
+
+			// op0e
+			if(programROM[0x53d]==0xc3 && programROM[0x53e]==0xdf && programROM[0x53f]==0xdf)
+			{
+				programROM[0x53d]=0x03;
+				programROM[0x53e]=0x04;
+				programROM[0x53f]=0xc4;
+			}
+		}
+	}
+}
+
 void necdsp_load()
 {
 	necdsp_active = false;
@@ -881,6 +935,8 @@ void necdsp_load()
 	{
 		necdsp_active = LoadBIOS("dsp4.bin",0x1800,0x800);
 		necdsp_chipset = uPD7725;
+
+		dsp4_sprite_limit();
 	}
 
 	if (necdsp_active)
