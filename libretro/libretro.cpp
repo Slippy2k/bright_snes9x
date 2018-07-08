@@ -31,8 +31,8 @@
 
 #define RETRO_MEMORY_SNES_BSX_RAM ((1 << 8) | RETRO_MEMORY_SAVE_RAM)
 #define RETRO_MEMORY_SNES_BSX_PRAM ((2 << 8) | RETRO_MEMORY_SAVE_RAM)
-#define RETRO_MEMORY_SNES_SUFAMI_TURBO_A_RAM ((3 << 8) | RETRO_MEMORY_SAVE_RAM)
-#define RETRO_MEMORY_SNES_SUFAMI_TURBO_B_RAM ((4 << 8) | RETRO_MEMORY_SAVE_RAM)
+#define RETRO_MEMORY_SNES_CART_A_RAM ((3 << 8) | RETRO_MEMORY_SAVE_RAM)
+#define RETRO_MEMORY_SNES_CART_B_RAM ((4 << 8) | RETRO_MEMORY_SAVE_RAM)
 #define RETRO_MEMORY_SNES_GAME_BOY_RAM ((5 << 8) | RETRO_MEMORY_SAVE_RAM)
 #define RETRO_MEMORY_SNES_GAME_BOY_RTC ((6 << 8) | RETRO_MEMORY_RTC)
 
@@ -54,6 +54,7 @@ int hires_blend = 0;
 bool overclock_cycles = false;
 bool reduce_sprite_flicker = false;
 bool randomize_memory = false;
+bool raise_sprite_limit = false;
 int one_c, slow_one_c, two_c;
 int16 macsrifle_adjust_x, macsrifle_adjust_y;
 
@@ -64,14 +65,14 @@ static retro_audio_sample_batch_t audio_batch_cb = NULL;
 static retro_input_poll_t poll_cb = NULL;
 static retro_input_state_t input_state_cb = NULL;
 
-static bool lufia2_credits_hack = false;
+static bool fast_interlace_hack = false;
 static uint16 *gfx_blend;
 static uint16 *gfx_copy;
 static int gfx_copy_width, gfx_copy_height;
 
-static int audio_interp_max = 32768;
-static int audio_interp_mode = 2;
-static uint8 audio_interp_custom[0x10000];
+int audio_interp_max = 32768;
+int audio_interp_mode = 2;
+uint8 audio_interp_custom[0x10000];
 
 static int blargg_filter = 0;
 int dsp1_chipset = 1;
@@ -86,7 +87,6 @@ int runahead_interlace;
 int runahead_interlace_frame;
 
 #include "render.cpp"
-#include "mudlord.cpp"
 
 #define MAX_SNES_WIDTH_OUT SNES_NTSC_OUT_WIDTH(256)
 
@@ -161,20 +161,20 @@ void retro_set_environment(retro_environment_t cb)
    environ_cb = cb;
 
    static const struct retro_subsystem_memory_info multi_a_memory[] = {
-      { "srm", RETRO_MEMORY_SNES_SUFAMI_TURBO_A_RAM },
+      { "srm", RETRO_MEMORY_SNES_CART_A_RAM },
    };
 
    static const struct retro_subsystem_memory_info multi_b_memory[] = {
-      { "srm", RETRO_MEMORY_SNES_SUFAMI_TURBO_B_RAM },
+      { "srm", RETRO_MEMORY_SNES_CART_B_RAM },
    };
 
    static const struct retro_subsystem_rom_info multicart_roms[] = {
       { "Cart A", "smc|sfc|swc|fig|bs", false, false, false, multi_a_memory, 1 },
-      { "Add-On B", "smc|sfc|swc|fig|bs", false, false, false, multi_b_memory, 1 },
+      { "Cart B", "smc|sfc|swc|fig|bs", false, false, false, multi_b_memory, 1 },
    };
 
    static const struct retro_subsystem_info subsystems[] = {
-      { "Multi-Cart Link", "multicart_addon", multicart_roms, 2, RETRO_GAME_TYPE_MULTI_CART },
+      { "Multi-Cart", "multicart_addon", multicart_roms, 2, RETRO_GAME_TYPE_MULTI_CART },
       {}
    };
 
@@ -191,6 +191,7 @@ void retro_set_environment(retro_environment_t cb)
       { "snes9x_overclock_superfx", "SuperFX overclocking; 100%|150%|200%|250%|300%|350%|400%|450%|500%|50%" },
       { "snes9x_overclock_cycles", "Reduce slowdown (Unsafe); disabled|compatible|max" },
       { "snes9x_reduce_sprite_flicker", "Reduce flickering (Unsafe); disabled|enabled" },
+      { "snes9x_raise_sprite_limit", "Raise sprite limit (Unsafe); disabled|enabled" },
       { "snes9x_randomize_memory", "Randomize memory (Unsafe); disabled|enabled" },
       { "snes9x_audio_interpolation", "Audio interpolation; gaussian|cubic|sinc|4-tap (custom)|8-tap (custom)|none|linear" },
       { "snes9x_layer_1", "Show layer 1; enabled|disabled" },
@@ -335,6 +336,20 @@ static void update_variables(void)
          reduce_sprite_flicker = true;
       else
          reduce_sprite_flicker = false;
+   }
+
+   var.key = "snes9x_raise_sprite_limit";
+   var.value = NULL;
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "enabled") == 0)
+         raise_sprite_limit = true;
+      else
+         raise_sprite_limit = false;
+
+			extern void dsp4_sprite_limit();
+			dsp4_sprite_limit();
    }
 
    var.key = "snes9x_randomize_memory";
@@ -1130,16 +1145,11 @@ void retro_load_init_reset()
       ChronoTriggerFrameHack = true;
    }
 
-   lufia2_credits_hack = false;
-   if (Memory.match_id("ANIE") ||
-       Memory.match_id("ANIP") ||
-       Memory.match_id("ANID") ||
-       Memory.match_id("ANIH") ||
-       Memory.match_id("ANIS") ||
-       Memory.match_id("ANIJ")
+   fast_interlace_hack = false;
+   if (Memory.match_nn("AIR STRIKE PATROL")
       )
    {
-      lufia2_credits_hack = true;
+      fast_interlace_hack = true;
    }
 
    special_hires_game = false;
@@ -1717,7 +1727,6 @@ void retro_run()
          S9xUnfreezeGameMem((const uint8_t*)savebuf,savesize);	 
        
          GFX.InterlaceFrame = Memory.FillRAM[0x213F]>>7;
-         //GFX.DoInterlace = runahead_interlace;
        
          Settings.FastSavestates = false;
          runahead_skip = runahead_speed;
@@ -1734,9 +1743,6 @@ void retro_run()
 
 
          S9xFreezeGameMem((uint8_t*)savebuf,savesize);
-
-         //runahead_interlace_frame = GFX.InterlaceFrame;
-         //runahead_interlace = GFX.DoInterlace;
 
          while(--runahead_skip)
          {
@@ -1790,11 +1796,13 @@ void* retro_get_memory_data(unsigned type)
    void* data;
 
    switch(type) {
-      case RETRO_MEMORY_SNES_SUFAMI_TURBO_A_RAM:
       case RETRO_MEMORY_SAVE_RAM:
          data = Memory.SRAM;
          break;
-      case RETRO_MEMORY_SNES_SUFAMI_TURBO_B_RAM:
+      case RETRO_MEMORY_SNES_CART_A_RAM:
+         data = Multi.sramA;
+         break;
+      case RETRO_MEMORY_SNES_CART_B_RAM:
          data = Multi.sramB;
          break;
       case RETRO_MEMORY_RTC:
@@ -1822,15 +1830,17 @@ size_t retro_get_memory_size(unsigned type)
    size_t size;
 
    switch(type) {
-      case RETRO_MEMORY_SNES_SUFAMI_TURBO_A_RAM:
       case RETRO_MEMORY_SAVE_RAM:
          size = (unsigned) (Memory.SRAMSize ? (1 << (Memory.SRAMSize + 3)) * 128 : 0);
          if (size > 0x20000)
             size = 0x20000;
          break;
-      case RETRO_MEMORY_SNES_SUFAMI_TURBO_B_RAM:
-         size = (unsigned) (Multi.cartType==4 && Multi.sramSizeB ? (1 << (Multi.sramSizeB + 3)) * 128 : 0);
-         break;
+      case RETRO_MEMORY_SNES_CART_A_RAM:
+         size = Multi.sramSizeA ? (1 << (Multi.sramSizeA + 3)) * 128 : 0;
+				 break;
+      case RETRO_MEMORY_SNES_CART_B_RAM:
+         size = Multi.sramSizeB ? (1 << (Multi.sramSizeB + 3)) * 128 : 0;
+				 break;
       case RETRO_MEMORY_RTC:
          size = (Settings.SRTC || Settings.SPC7110RTC)?20:0;
          break;
@@ -2021,13 +2031,10 @@ bool8 S9xDeinitUpdate(int width, int height)
 
 	 //if(log_cb) log_cb(RETRO_LOG_INFO,"normal %d %d\n", GFX.InterlaceFrame, Memory.FillRAM[0x213F]>>7);
 
-   if (GFX.DoInterlace && GFX.InterlaceFrame == 1)
+   if (GFX.DoInterlace)
    {
-      if (interlace_speed == 2)
-         return TRUE;
-
-      // lufia 2 credits -- smooth interlace scroll
-      if(!Settings.DisableGameSpecificHacks && interlace_speed==0 && lufia2_credits_hack && PPU.BGMode==6)
+		  // draw odd lines
+      if (interlace_speed == 1)
          return TRUE;
    }
 
@@ -2040,13 +2047,15 @@ bool8 S9xContinueUpdate(int width, int height)
 
 	 //if(log_cb) log_cb(RETRO_LOG_INFO,"interlace %d %d\n", GFX.InterlaceFrame, Memory.FillRAM[0x213F]>>7);
 
-   if (GFX.DoInterlace && GFX.InterlaceFrame == 0)
-   {
-      if (interlace_speed == 1)
-         return TRUE;
-   }
+	 // auto hack - fast interlace
+   if(!Settings.DisableGameSpecificHacks && interlace_speed==0 && fast_interlace_hack)
+      return DrawFrame(width, height);
 
-   return DrawFrame(width, height);
+	 // draw odd lines - both lines
+	 if (interlace_speed == 2 || interlace_speed == 3)
+      return DrawFrame(width, height);
+
+   return TRUE;
 }
 
 // Dummy functions that should probably be implemented correctly later.
