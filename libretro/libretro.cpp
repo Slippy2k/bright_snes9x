@@ -65,7 +65,7 @@ static retro_audio_sample_batch_t audio_batch_cb = NULL;
 static retro_input_poll_t poll_cb = NULL;
 static retro_input_state_t input_state_cb = NULL;
 
-static bool fast_interlace_hack = false;
+static int slow_interlace_hack = 0;
 static uint16 *gfx_blend;
 static uint16 *gfx_copy;
 static int gfx_copy_width, gfx_copy_height;
@@ -214,7 +214,7 @@ void retro_set_environment(retro_environment_t cb)
       { "snes9x_chip_emulation", "Special chip emulation; Hardware|Software" },
       { "snes9x_vram_allow", "Allow invalid VRAM access (Unsafe); disabled|enabled" },
       { "snes9x_special_hacks", "Use special game hacks; enabled|disabled" },
-      { "snes9x_interlace", "Show interlace frames; auto|even|odd|both" },
+      { "snes9x_interlace", "Show interlace frames; auto|odd|even|both" },
       { "snes9x_speakers", "Audio output mode; 16-bit stereo|mute|8-bit mono|8-bit stereo|16-bit mono" },
       { "snes9x_overscan", "Crop overscan; auto|enabled|disabled" },
       { "snes9x_aspect", "Preferred aspect ratio; auto|ntsc|pal|4:3" },
@@ -624,9 +624,9 @@ static void update_variables(void)
 
       if (strcmp(var.value, "auto") == 0)
          interlace_speed = 0;
-      else if (strcmp(var.value, "even") == 0)
-         interlace_speed = 1;
       else if (strcmp(var.value, "odd") == 0)
+         interlace_speed = 1;
+      else if (strcmp(var.value, "even") == 0)
          interlace_speed = 2;
       else if (strcmp(var.value, "both") == 0)
          interlace_speed = 3;
@@ -1145,11 +1145,16 @@ void retro_load_init_reset()
       ChronoTriggerFrameHack = true;
    }
 
-   fast_interlace_hack = false;
-   if (Memory.match_nn("AIR STRIKE PATROL")
-      )
+   slow_interlace_hack = 0;
+	 if (Memory.match_id("ANIE") ||  /* Lufia 2 */
+	     Memory.match_id("ANIP") ||
+	     Memory.match_id("ANID") ||
+	     Memory.match_id("ANIH") ||
+	     Memory.match_id("ANIS") ||
+	     Memory.match_id("ANIJ")
+	 )
    {
-      fast_interlace_hack = true;
+      slow_interlace_hack = 2;
    }
 
    special_hires_game = false;
@@ -2033,10 +2038,13 @@ bool8 S9xDeinitUpdate(int width, int height)
 
    if (GFX.DoInterlace)
    {
-		  // draw odd lines
-      if (interlace_speed == 1)
+		  // skip even frames
+      if (interlace_speed == 2)
          return TRUE;
-   }
+	 
+	    if(!Settings.DisableGameSpecificHacks && interlace_speed==0 && slow_interlace_hack==2)
+				 return TRUE;
+	 }
 
    return DrawFrame(width, height);
 }
@@ -2047,15 +2055,14 @@ bool8 S9xContinueUpdate(int width, int height)
 
 	 //if(log_cb) log_cb(RETRO_LOG_INFO,"interlace %d %d\n", GFX.InterlaceFrame, Memory.FillRAM[0x213F]>>7);
 
-	 // auto hack - fast interlace
-   if(!Settings.DisableGameSpecificHacks && interlace_speed==0 && fast_interlace_hack)
-      return DrawFrame(width, height);
+	 // skip odd frames
+	 if (interlace_speed == 1)
+		  return TRUE;
+			 
+	 if(!Settings.DisableGameSpecificHacks && interlace_speed==0 && slow_interlace_hack==1)
+		  return TRUE;
 
-	 // draw odd lines - both lines
-	 if (interlace_speed == 2 || interlace_speed == 3)
-      return DrawFrame(width, height);
-
-   return TRUE;
+	 return DrawFrame(width, height);
 }
 
 // Dummy functions that should probably be implemented correctly later.
