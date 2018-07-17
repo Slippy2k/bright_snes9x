@@ -65,6 +65,13 @@ static BOOST::uint8_t const initial_regs [SPC_DSP::register_count] =
 	out [0] = l;\
 	out [1] = r;\
 	out += 2;\
+	\
+	if(l | r) \
+	{ \
+		fast_loading_start = 2; \
+		fast_loading_active = false; \
+	} \
+	\
 	if ( out >= m.out_end )\
 	{\
 		check( out == m.out_end );\
@@ -429,135 +436,153 @@ static short const sinc [2048] =
 
 inline int SPC_DSP::interpolate( voice_t const* v )
 {
-   int out = 0;
+	int64 out = 0;
 
-   switch(audio_interp_mode) {
-      // none
-      case 0:
-         out = v->buf [(v->interp_pos >> 12) + v->buf_pos];
-         break;
+	switch(audio_interp_mode) {
+		// none
+		case 0:
+			out = v->buf [(v->interp_pos >> 12) + v->buf_pos];
+			break;
 
-      // linear
-      case 1: {
-         int fract = v->interp_pos & 0xFFF;
+		// linear
+		case 1: {
+			int fract = v->interp_pos & 0xFFF;
 
-         int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
-         out  = (0x1000 - fract) * in [0];
-         out +=           fract  * in [1];
-         out >>= 12;
-         break;
-      }
+			int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
+			out  = (0x1000 - fract) * in [0];
+			out +=           fract  * in [1];
+			out >>= 12;
+			break;
+		}
 
-      // gaussian (brr overflow)
-      case 2: {
-         // Make pointers into gaussian based on fractional position between samples
-         int offset = v->interp_pos >> 4 & 0xFF;
-         short const* fwd = gauss + 255 - offset;
-         short const* rev = gauss       + offset; // mirror left half of gaussian
+		// gaussian (brr overflow)
+		case 2: {
+			// Make pointers into gaussian based on fractional position between samples
+			int offset = v->interp_pos >> 4 & 0xFF;
+			short const* fwd = gauss + 255 - offset;
+			short const* rev = gauss       + offset; // mirror left half of gaussian
 
-         int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
-         int out;
-         out  = (fwd [  0] * in [0]) >> 11;
-         out += (fwd [256] * in [1]) >> 11;
-         out += (rev [256] * in [2]) >> 11;
-         out = (int16_t) out;
-         out += (rev [  0] * in [3]) >> 11;
+			int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
+			int out;
+			out  = (fwd [  0] * in [0]) >> 11;
+			out += (fwd [256] * in [1]) >> 11;
+			out += (rev [256] * in [2]) >> 11;
+			out = (int16_t) out;
+			out += (rev [  0] * in [3]) >> 11;
 
-				 CLAMP16( out );
-         out &= ~1;
-         return out;
-         break;
-	  }
+			CLAMP16( out );
+			out &= ~1;
+			return out;
+		}
 
-      // cubic
-      case 3: {
-         // Make pointers into cubic based on fractional position between samples
-         int offset = v->interp_pos >> 4 & 0xFF;
-         short const* fwd = cubic       + offset;
-         short const* rev = cubic + 256 - offset; // mirror left half of cubic
+		// gaussian (hq)
+		case 3: {
+			// Make pointers into gaussian based on fractional position between samples
+			int offset = v->interp_pos & 0xFFF;
+			short const* filt = (short const*) (((char const*)audio_interp_custom) + offset*4*2);
+
+			int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
+			out  = filt [0] * in [0];
+			out += filt [1] * in [1];
+			out += filt [2] * in [2];
+			out += filt [3] * in [3];
+			out >>= 11;
+			break;
+		}
+
+		// cubic
+		case 4: {
+			// Make pointers into cubic based on fractional position between samples
+			int offset = v->interp_pos >> 4 & 0xFF;
+			short const* fwd = cubic       + offset;
+			short const* rev = cubic + 256 - offset; // mirror left half of cubic
         
-         int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
-         out  = fwd [  0] * in [0];
-         out += fwd [257] * in [1];
-         out += rev [257] * in [2];
-         out += rev [  0] * in [3];
-         out >>= 11;
-         break;
-      }
+			int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
+			out  = fwd [  0] * in [0];
+			out += fwd [257] * in [1];
+			out += rev [257] * in [2];
+			out += rev [  0] * in [3];
+			out >>= 11;
+			break;
+		}
 
-      // sinc
-      case 4: {
-         // Make pointers into cubic based on fractional position between samples
-         int offset = v->interp_pos & 0xFF0;
-         short const* filt = (short const*) (((char const*)sinc) + offset);
+		// catmull-rom = cubic hermite spline @ 0.50
+		case 5: {
+			// 0.12 -- 16.0
+			int offset = v->interp_pos & 0xFFF;
+			int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
+
+			int A=in[0], B=in[1], C=in[2], D=in[3];
+			int a = -A + 3*B - 3*C + D;
+			int b = 2*A - 5*B + 4*C - D;
+			int c = -A + C;
+			int d = 2*B;
+
+			int temp;
+			temp = (a * offset) / 0x1000;
+			temp = ((b + temp) * offset) / 0x1000;
+			temp = ((c + temp) * offset) / 0x1000;
+			temp = d + temp;
+			out = 0.5 * temp;
+			break;
+		}
+
+		// sinc
+		case 6: {
+			// Make pointers into cubic based on fractional position between samples
+			int offset = v->interp_pos & 0xFF0;
+			short const* filt = (short const*) (((char const*)sinc) + offset);
         
-         int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
-         out  = filt [0] * in [0];
-         out += filt [1] * in [1];
-         out += filt [2] * in [2];
-         out += filt [3] * in [3];
-         out += filt [4] * in [4];
-         out += filt [5] * in [5];
-         out += filt [6] * in [6];
-         out += filt [7] * in [7];
-         out >>= 14;
-         break;
-	    }
+			int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
+			out  = filt [0] * in [0];
+			out += filt [1] * in [1];
+			out += filt [2] * in [2];
+			out += filt [3] * in [3];
+			out += filt [4] * in [4];
+			out += filt [5] * in [5];
+			out += filt [6] * in [6];
+			out += filt [7] * in [7];
+			out >>= 14;
+			break;
+		}
    
-      // 4-tap (custom)
-      case 5: {
-         // Make pointers into gaussian based on fractional position between samples
-         int offset = v->interp_pos & 0xFFF;
-         short const* filt = (short const*) (((char const*)audio_interp_custom) + offset*4*2);
+		// sinc (hq)
+		case 7: {
+			// Make pointers into sinc based on fractional position between samples
+			int offset = v->interp_pos & 0xFFF;
+			short const* filt = (short const*) (((char const*)audio_interp_custom) + offset*8*2);
 
-         int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
-         out  = filt [0] * in [0] >> 1;
-         out += filt [1] * in [1] >> 1;
-         out += filt [2] * in [2] >> 1;
-         out += filt [3] * in [3] >> 1;
-         out >>= 14;
-         break;
-      }
+			int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
+			out  = filt [0] * in [0];
+			out += filt [1] * in [1];
+			out += filt [2] * in [2];
+			out += filt [3] * in [3];
+			out += filt [4] * in [4];
+			out += filt [5] * in [5];
+			out += filt [6] * in [6];
+			out += filt [7] * in [7];
+			out >>= 14;
+			break;
+		}
+	}	// switch
 
-      // 8-tap (custom)
-      case 6: {
-         // Make pointers into sinc based on fractional position between samples
-         int offset = v->interp_pos & 0xFFF;
-         short const* filt = (short const*) (((char const*)audio_interp_custom) + offset*8*2);
+	int64 out_max = out;
+	out *= 32768;
+	out /= audio_interp_max;
 
-         int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
-         out  = filt [0] * in [0] >> 2;
-         out += filt [1] * in [1] >> 2;
-         out += filt [2] * in [2] >> 2;
-         out += filt [3] * in [3] >> 2;
-         out += filt [4] * in [4] >> 2;
-         out += filt [5] * in [5] >> 2;
-         out += filt [6] * in [6] >> 2;
-         out += filt [7] * in [7] >> 2;
-         out >>= 13;
-         break;
-      }
-	 }
+	if( out > 32767 ) {
+		if(log_cb) log_cb(RETRO_LOG_INFO,"audio max = %X (%d %d)\n",out_max,audio_interp_max,out);
+		audio_interp_max = out_max;
+		out = 32767;
+	}
 
-   int out_max = out;
-   out *= 32768;
-   out /= audio_interp_max;
+	else if( out < -32768 ) {
+		if(log_cb) log_cb(RETRO_LOG_INFO,"audio max = -%X (%d %d)\n",-out_max,audio_interp_max,out);
+		audio_interp_max = -out_max;
+		out = -32768;
+	}
 
-   if( out > 32767 )
-   {
-      //if(log_cb) log_cb(RETRO_LOG_INFO,"audio max = %X\n",out_max);
-      audio_interp_max = out_max;
-      out = 32767;
-   }
-
-   else if( out < -32768 )
-   {
-      //if(log_cb) log_cb(RETRO_LOG_INFO,"audio max = %X\n",out_max);
-      audio_interp_max = -out_max;
-      out = -32768;
-   }
-
-   return out;
+	return (short) out;
 }
 
 
@@ -568,7 +593,7 @@ int const simple_counter_range = 2048 * 5 * 3; // 30720
 static unsigned const counter_rates [32] =
 {
    simple_counter_range + 1, // never fires
-          2048, 1536,
+        2048, 1536,
 	1280, 1024,  768,
 	 640,  512,  384,
 	 320,  256,  192,

@@ -1,5 +1,15 @@
 #include <snes/snes.hpp>
 
+
+extern int fast_loading_start;
+extern bool fast_loading_active;
+
+extern int audio_interp_max;
+extern int audio_interp_mode;
+extern uint8 audio_interp_custom[0x10000];
+
+
+
 #define DSP_CPP
 namespace SNES {
 
