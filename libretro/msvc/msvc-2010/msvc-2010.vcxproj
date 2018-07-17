@@ -98,7 +98,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <ModuleDefinitionFile>libretro.def</ModuleDefinitionFile>
-      <OutputFile>snes9x_bright.dll</OutputFile>
+      <OutputFile>snes9x_libretro.dll</OutputFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release-fast|Win32'">
@@ -128,13 +128,16 @@
       <ModuleDefinitionFile>libretro.def</ModuleDefinitionFile>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <DataExecutionPrevention>false</DataExecutionPrevention>
-      <OutputFile>snes9x_bright.dll</OutputFile>
+      <OutputFile>snes9x_libretro.dll</OutputFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\apu\apu.cpp" />
     <ClCompile Include="..\..\..\apu\bapu\dsp\sdsp.cpp" />
-    <ClCompile Include="..\..\..\apu\bapu\dsp\SPC_DSP.cpp" />
+    <ClCompile Include="..\..\..\apu\bapu\dsp\SPC_DSP.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release-fast|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="..\..\..\apu\bapu\smp\smp.cpp" />
     <ClCompile Include="..\..\..\apu\bapu\smp\smp_state.cpp" />
     <ClCompile Include="..\..\..\bsx.cpp" />
