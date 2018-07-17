@@ -3,7 +3,14 @@
 sandbox of www.github.com/libretro/snes9x (pre-1.56 rebase) for testing experimental features (meant for having fun only!!) -      ideally not recommended for upstream core inclusion (seriously, it's going to be messy clutter!)
 
 
-dropoff 6 preview:
+dropoff 7 preview1:
+- fast loading
+- catmull-rom (hermite) interpolation
+- better default interpolation limits, tweak hq tables
+- fix snes device hotplugging
+
+
+dropoff 6:
 - add byuu's hitachi dsp chipset code (cx4)
 - backport Phalanx fix
 - remove Kat's Run DMA kludge (Phalanx fix)
@@ -74,6 +81,8 @@ notes:
 
 - hardware chipset emulation. Name your BIOS files dsp1.bin, dsp1b.bin, dsp2.bin, dsp3.bin, dsp4.bin, st0010.bin, st0011.bin, cx4.bin and place in Retroarch system folder.
 
-- there's a rough chance of dropoff 7 coming out. But there's honestly not much left to be added (sgb? st018?). Interest is naturally low. Likely almost no one will find out about this build and I can keep it a secret!
+- fast loading. When the snes goes into a quiet (no audio, no video) mode, run emulator without speed limiter to skip dead time.
+
+- there's a rough chance of dropoff 8 coming out. But there's honestly not much left to be added (sgb? st018?). Interest is naturally low. Likely almost no one will find out about this build and I can keep it a secret!
 
 - if you actually enjoy using this win32 snes9x port, then erm. Thanks! And it's alright if you don't like/want/accept/use any of these features. They are leftovers and not intended for mainstream libretro / snes9x community consumption.
