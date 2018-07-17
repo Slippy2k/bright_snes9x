@@ -449,6 +449,17 @@ void S9xSetPPU (uint8 Byte, uint16 Address)
 					{
 						IPPU.ColorsChanged = TRUE;
 						PPU.ForcedBlanking = (Byte >> 7) & 1;
+
+						extern int fast_loading;
+
+						if(fast_loading)
+						{
+							extern bool fast_loading_active;
+							extern int fast_loading_start;
+
+							fast_loading_start = 2;
+							fast_loading_active = false;
+						}
 					}
 				}
 

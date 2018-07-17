@@ -499,7 +499,9 @@ extern struct STimings			Timings;
 extern struct SSNESGameFixes	SNESGameFixes;
 extern char						String[513];
 
-extern bool8 libretro_get_snes_interp();
-extern int libretro_snes_interp(void *ptr);
+#ifdef __LIBRETRO__
+#include "libretro/libretro.h"
+extern retro_log_printf_t log_cb;
+#endif
 
 #endif

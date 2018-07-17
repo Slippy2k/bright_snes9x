@@ -205,16 +205,21 @@
 
 static inline void S9xReschedule (void);
 
-#ifdef LAGFIX
-bool8 finishedFrame = false;
-#endif
+
+static int fast_loading_timer;
+
+extern bool fast_loading_active;
+extern int fast_loading;
+extern int fast_loading_start;
+
 
 void S9xMainLoop (void)
 {
-#ifdef LAGFIX
-	do
-	{
-#endif
+	if(fast_loading && (PPU.ForcedBlanking || PPU.Brightness==0) && !fast_loading_start)
+		fast_loading_active = true;
+
+	fast_loading_timer = fast_loading;
+
 
 	#define CHECK_FOR_IRQ_CHANGE() \
 	if (Timings.IRQFlagChanging) \
@@ -347,36 +352,18 @@ void S9xMainLoop (void)
 
 		if (Settings.SA1)
 			S9xSA1MainLoop();
-
-#ifdef LAGFIX
-		if (finishedFrame)
-		break;
-#endif
 	}
 
-#ifdef LAGFIX
-	if (!finishedFrame)
-#endif
-	{
-		S9xPackStatus();
+	S9xPackStatus();
 	
-		if (CPU.Flags & SCAN_KEYS_FLAG)
-		{
-			#ifdef DEBUGGER
-				if (!(CPU.Flags & FRAME_ADVANCE_FLAG))
-			#endif
-				S9xSyncSpeed();
-				CPU.Flags &= ~SCAN_KEYS_FLAG;
-		}
+	if (CPU.Flags & SCAN_KEYS_FLAG)
+	{
+		#ifdef DEBUGGER
+			if (!(CPU.Flags & FRAME_ADVANCE_FLAG))
+		#endif
+			S9xSyncSpeed();
+			CPU.Flags &= ~SCAN_KEYS_FLAG;
 	}
-#ifdef LAGFIX
-   else
-   {
-      finishedFrame = false;
-      break;
-   }
-   }while(!finishedFrame);
-#endif
 }
 
 static inline void S9xReschedule (void)
@@ -525,12 +512,33 @@ void S9xDoHEventProcessing (void)
 
 			if (CPU.V_Counter == PPU.ScreenHeight + FIRST_VISIBLE_LINE)	// VBlank starts from V=225(240).
 			{
+				CPU.Flags |= SCAN_KEYS_FLAG;
+				
+				if(fast_loading && (PPU.ForcedBlanking || PPU.Brightness==0))
+				{
+					if(fast_loading_start)
+					{
+						--fast_loading_start;
+
+						fast_loading_active = false;
+					}
+
+					else
+					{
+						if(--fast_loading_timer)
+						{
+							CPU.Flags &= ~SCAN_KEYS_FLAG;
+							fast_loading_active = true;
+						}
+
+						else
+							fast_loading_active = false;
+					}
+				}
+
 				S9xEndScreenRefresh();
 
-				CPU.Flags |= SCAN_KEYS_FLAG;
-#ifdef LAGFIX
-				finishedFrame = true;
-#endif
+
 				PPU.HDMA = 0;
 				// Bits 7 and 6 of $4212 are computed when read in S9xGetPPU.
 			#ifdef DEBUGGER
