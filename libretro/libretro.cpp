@@ -86,6 +86,11 @@ static int runahead_skip = 0;
 int runahead_interlace;
 int runahead_interlace_frame;
 
+int fast_loading = 0;
+int fast_loading_start = 0;
+bool fast_loading_active = false;
+
+
 #include "render.cpp"
 
 #define MAX_SNES_WIDTH_OUT SNES_NTSC_OUT_WIDTH(256)
@@ -185,15 +190,16 @@ void retro_set_environment(retro_environment_t cb)
       // These variable names and possible values constitute an ABI with ZMZ (ZSNES Libretro player).
       // Changing "Show layer 1" is fine, but don't change "layer_1"/etc or the possible values ("Yes|No").
       // Adding more variables and rearranging them is safe.
-      { "snes9x_up_down_allowed", "Allow opposing directions; disabled|enabled" },
+      { "snes9x_fast_loading", "Fast loading; disabled|safe|normal" },
+      { "snes9x_up_down_allowed", "Allow opposing directions (Unsafe); disabled|enabled" },
       { "snes9x_blargg", "Blargg NTSC filter; disabled|monochrome|rf|composite|s-video|rgb" },
       { "snes9x_hires_blend", "Hires blending; disabled|half|full|special" },
-      { "snes9x_overclock_superfx", "SuperFX overclocking; 100%|150%|200%|250%|300%|350%|400%|450%|500%|50%" },
+      { "snes9x_overclock_superfx", "SuperFX speed; 100%|150%|200%|250%|300%|350%|400%|450%|500%|50%" },
       { "snes9x_overclock_cycles", "Reduce slowdown (Unsafe); disabled|compatible|max" },
       { "snes9x_reduce_sprite_flicker", "Reduce flickering (Unsafe); disabled|enabled" },
       { "snes9x_raise_sprite_limit", "Raise sprite limit (Unsafe); disabled|enabled" },
       { "snes9x_randomize_memory", "Randomize memory (Unsafe); disabled|enabled" },
-      { "snes9x_audio_interpolation", "Audio interpolation; gaussian|cubic|sinc|4-tap (custom)|8-tap (custom)|none|linear" },
+      { "snes9x_audio_interpolation", "Audio interpolation; gaussian|gaussian (hq)|cubic|catmull-rom|sinc|sinc (hq)|none|linear" },
       { "snes9x_layer_1", "Show layer 1; enabled|disabled" },
       { "snes9x_layer_2", "Show layer 2; enabled|disabled" },
       { "snes9x_layer_3", "Show layer 3; enabled|disabled" },
@@ -267,6 +273,22 @@ static void update_variables(void)
    char key[256];
    struct retro_variable var;
 
+   var.key = "snes9x_fast_loading";
+   var.value = NULL;
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
+   {
+      if (strcmp(var.value, "disabled") == 0)
+        fast_loading = 0;
+      else if (strcmp(var.value, "safe") == 0)
+        fast_loading = 5;
+      else if (strcmp(var.value, "normal") == 0)
+        fast_loading = 30;
+
+      fast_loading_start = 2;
+      fast_loading_active = false;
+   }
+
    var.key = "snes9x_hires_blend";
    var.value = NULL;
 
@@ -312,6 +334,7 @@ static void update_variables(void)
       if (strcmp(var.value, "compatible") == 0)
       {
          overclock_cycles = true;
+
          one_c = 4;
          slow_one_c = 5;
          two_c = 6;
@@ -319,6 +342,7 @@ static void update_variables(void)
       else if (strcmp(var.value, "max") == 0)
       {
          overclock_cycles = true;
+
          one_c = 3;
          slow_one_c = 3;
          two_c = 3;
@@ -348,8 +372,8 @@ static void update_variables(void)
       else
          raise_sprite_limit = false;
 
-			extern void dsp4_sprite_limit();
-			dsp4_sprite_limit();
+      extern void dsp4_sprite_limit();
+      dsp4_sprite_limit();
    }
 
    var.key = "snes9x_randomize_memory";
@@ -368,6 +392,7 @@ static void update_variables(void)
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
+      static char name[PATH_MAX + 1];
       int oldval = audio_interp_mode;
 
       if (strcmp(var.value, "none") == 0)
@@ -376,43 +401,57 @@ static void update_variables(void)
          audio_interp_mode = 1;
       else if (strcmp(var.value, "gaussian") == 0)
          audio_interp_mode = 2;
-      else if (strcmp(var.value, "cubic") == 0)
-         audio_interp_mode = 3;
-      else if (strcmp(var.value, "sinc") == 0)
-         audio_interp_mode = 4;
-      else if (strcmp(var.value, "4-tap (custom)") == 0)
+      else if (strcmp(var.value, "gaussian (hq)") == 0 && oldval != 3)
       {
-         char name[PATH_MAX + 1];
-         sprintf(name,"%s/snes_custom_4tap.bin",retro_system_directory);
+         sprintf(name,"%s/snes_gaussian_hq.bin",retro_system_directory);
          FILE *fp = fopen(name,"rb");
          if(fp)
          {
             if(fread(audio_interp_custom,1,0x8000,fp))
-            {
-               audio_interp_mode = 5;
-               audio_interp_max = 32768;
-            }
+               audio_interp_mode = 3;
          }
          fclose(fp);
       }
-      else if (strcmp(var.value, "8-tap (custom)") == 0)
+      else if (strcmp(var.value, "cubic") == 0)
+         audio_interp_mode = 4;
+      else if (strcmp(var.value, "catmull-rom") == 0)
+         audio_interp_mode = 5;
+      else if (strcmp(var.value, "sinc") == 0)
+         audio_interp_mode = 6;
+      else if (strcmp(var.value, "sinc (hq)") == 0 && oldval != 7)
       {
-         char name[PATH_MAX + 1];
-         sprintf(name,"%s/snes_custom_8tap.bin",retro_system_directory);
+         sprintf(name,"%s/snes_sinc_hq.bin",retro_system_directory);
          FILE *fp = fopen(name,"rb");
          if(fp)
          {
             if(fread(audio_interp_custom,1,0x10000,fp))
-            {
-               audio_interp_mode = 6;
-               audio_interp_max = 32768;
-            }
+               audio_interp_mode = 7;
+
             fclose(fp);
          }
       }
 
       if (oldval != audio_interp_mode)
-         audio_interp_max = 32768;
+      {
+         switch(audio_interp_mode)
+         {
+				 case 5:
+					  audio_interp_max = 37031;
+						break;
+
+         case 6:
+            audio_interp_max = 43630;
+            break;
+
+         case 7:
+            audio_interp_max = 91056;
+            break;
+
+         default:
+            audio_interp_max = 32768;
+            break;
+				 }
+      }
    }
 
    int disabled_channels=0;
@@ -614,7 +653,7 @@ static void update_variables(void)
       else if (strcmp(var.value, "Software") == 0)
          chip_emulation = 0;
    }
-	 
+   
    var.key = "snes9x_interlace";
    var.value = NULL;
 
@@ -692,14 +731,14 @@ static void S9xAudioCallback(void*)
    {
       //this loop will never be entered, but handle oversized sample counts just in case
       S9xMixSamples((uint8*)audio_buf, BUFFER_SIZE);
-      audio_batch_cb(audio_buf, BUFFER_SIZE >> 1);
+      if(!fast_loading_active) audio_batch_cb(audio_buf, BUFFER_SIZE >> 1);
 
       avail -= BUFFER_SIZE;
    }
    if (avail > 0)
    {
       S9xMixSamples((uint8*)audio_buf, avail);
-      audio_batch_cb(audio_buf, avail >> 1);
+      if(!fast_loading_active) audio_batch_cb(audio_buf, avail >> 1);
    }
 }
 
@@ -773,7 +812,7 @@ void retro_reset()
 {
    S9xSoftReset();
 
-	 runahead_skip = -runahead_speed;
+   runahead_skip = -runahead_speed;
 }
 
 static unsigned snes_devices[2];
@@ -995,7 +1034,7 @@ static void init_descriptors(void)
       { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,   "Select" },
       { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
 
-      { 0, 0, 0, 0, "" },
+      { 0,0,0,0,"" },
    };
 
    environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, desc);
@@ -1068,7 +1107,7 @@ static void Remove_Header(uint8_t *&romptr, size_t &romsize, bool multicart_sufa
 static bool LoadBIOS(uint8 *biosrom, const char *biosname, size_t biossize)
 {
    FILE	*fp;
-   char	name[PATH_MAX + 1];
+   static char name[PATH_MAX + 1];
    bool8 r = false;
 
    strcpy(name, S9xGetDirectory(ROMFILENAME_DIR));
@@ -1146,13 +1185,13 @@ void retro_load_init_reset()
    }
 
    slow_interlace_hack = 0;
-	 if (Memory.match_id("ANIE") ||  /* Lufia 2 */
-	     Memory.match_id("ANIP") ||
-	     Memory.match_id("ANID") ||
-	     Memory.match_id("ANIH") ||
-	     Memory.match_id("ANIS") ||
-	     Memory.match_id("ANIJ")
-	 )
+   if (Memory.match_id("ANIE") ||  /* Lufia 2 */
+       Memory.match_id("ANIP") ||
+       Memory.match_id("ANID") ||
+       Memory.match_id("ANIH") ||
+       Memory.match_id("ANIS") ||
+       Memory.match_id("ANIJ")
+   )
    {
       slow_interlace_hack = 2;
    }
@@ -1177,8 +1216,6 @@ void retro_load_init_reset()
       for(int lcv=0; lcv<0x20000; lcv++)
          Memory.RAM[lcv] = rand()%256;
    }
-
-   audio_interp_max = 32768;
 }
 
 bool retro_load_game(const struct retro_game_info *game)
@@ -1596,10 +1633,10 @@ static void map_buttons()
 // S9x seems to use absolute values, but do convert these into relative values in the core. (Why?!)
 // Hack around it. :)
 
-static int16_t snes_mouse_state[2][2] = {{0}, {0}};
-static int16_t snes_scope_state[2] = {0};
-static int16_t snes_justifier_state[2][2] = {{0}, {0}};
-static int16_t snes_macsrifle_state[2] = {0};
+static int16_t snes_mouse_state[2][2] = {};
+static int16_t snes_scope_state[2] = {};
+static int16_t snes_justifier_state[2][2] = {};
+static int16_t snes_macsrifle_state[2] = {};
 
 static void report_buttons()
 {
@@ -1715,6 +1752,7 @@ void retro_run()
       S9xSetSoundMute(false);
       Settings.HardDisableAudio = false;
    }
+
 
    if(runahead_speed == 0)
    {
@@ -1842,10 +1880,10 @@ size_t retro_get_memory_size(unsigned type)
          break;
       case RETRO_MEMORY_SNES_CART_A_RAM:
          size = Multi.sramSizeA ? (1 << (Multi.sramSizeA + 3)) * 128 : 0;
-				 break;
+         break;
       case RETRO_MEMORY_SNES_CART_B_RAM:
          size = Multi.sramSizeB ? (1 << (Multi.sramSizeB + 3)) * 128 : 0;
-				 break;
+         break;
       case RETRO_MEMORY_RTC:
          size = (Settings.SRTC || Settings.SPC7110RTC)?20:0;
          break;
@@ -1904,7 +1942,7 @@ bool retro_unserialize(const void* data, size_t size)
    if(runahead_speed && Settings.FastSavestates)
       return true;
 
-	 if (S9xUnfreezeGameMem((const uint8_t*)data,size) != SUCCESS)
+   if (S9xUnfreezeGameMem((const uint8_t*)data,size) != SUCCESS)
       return false;
 
    if (Settings.FastSavestates == 0)
@@ -1914,45 +1952,45 @@ bool retro_unserialize(const void* data, size_t size)
 
       memset(GFX.Screen,0,GFX.Pitch * MAX_SNES_HEIGHT);
 
-		  GFX.InterlaceFrame = Memory.FillRAM[0x213F]>>7;
-			if (!GFX.InterlaceFrame)
-				GFX.DoInterlace = 0;
-			else
-				GFX.DoInterlace = 1;
+      GFX.InterlaceFrame = Memory.FillRAM[0x213F]>>7;
+      if (!GFX.InterlaceFrame)
+        GFX.DoInterlace = 0;
+      else
+        GFX.DoInterlace = 1;
 
-			IPPU.MaxBrightness = PPU.Brightness;
+      IPPU.MaxBrightness = PPU.Brightness;
 
-			IPPU.Interlace    = Memory.FillRAM[0x2133] & 1;
-			IPPU.InterlaceOBJ = Memory.FillRAM[0x2133] & 2;
-			IPPU.PseudoHires  = Memory.FillRAM[0x2133] & 8;
+      IPPU.Interlace    = Memory.FillRAM[0x2133] & 1;
+      IPPU.InterlaceOBJ = Memory.FillRAM[0x2133] & 2;
+      IPPU.PseudoHires  = Memory.FillRAM[0x2133] & 8;
 
-			if (Settings.SupportHiRes && (PPU.BGMode == 5 || PPU.BGMode == 6 || IPPU.PseudoHires))
-			{
-				GFX.RealPPL = GFX.Pitch >> 1;
-				IPPU.DoubleWidthPixels = TRUE;
-				IPPU.RenderedScreenWidth = SNES_WIDTH << 1;
-			}
-			else
-			{
-				GFX.RealPPL = GFX.Pitch >> 1;
-				IPPU.DoubleWidthPixels = FALSE;
-				IPPU.RenderedScreenWidth = SNES_WIDTH;
-			}
+      if (Settings.SupportHiRes && (PPU.BGMode == 5 || PPU.BGMode == 6 || IPPU.PseudoHires))
+      {
+        GFX.RealPPL = GFX.Pitch >> 1;
+        IPPU.DoubleWidthPixels = TRUE;
+        IPPU.RenderedScreenWidth = SNES_WIDTH << 1;
+      }
+      else
+      {
+        GFX.RealPPL = GFX.Pitch >> 1;
+        IPPU.DoubleWidthPixels = FALSE;
+        IPPU.RenderedScreenWidth = SNES_WIDTH;
+      }
 
-			if (Settings.SupportHiRes && IPPU.Interlace)
-			{
-				GFX.PPL = GFX.RealPPL << 1;
-				IPPU.DoubleHeightPixels = TRUE;
-				IPPU.RenderedScreenHeight = PPU.ScreenHeight << 1;
-				GFX.DoInterlace++;
-			}
-			else
-			{
-				GFX.PPL = GFX.RealPPL;
-				IPPU.DoubleHeightPixels = FALSE;
-				IPPU.RenderedScreenHeight = PPU.ScreenHeight;
-			}
-	 }
+      if (Settings.SupportHiRes && IPPU.Interlace)
+      {
+        GFX.PPL = GFX.RealPPL << 1;
+        IPPU.DoubleHeightPixels = TRUE;
+        IPPU.RenderedScreenHeight = PPU.ScreenHeight << 1;
+        GFX.DoInterlace++;
+      }
+      else
+      {
+        GFX.PPL = GFX.RealPPL;
+        IPPU.DoubleHeightPixels = FALSE;
+        IPPU.RenderedScreenHeight = PPU.ScreenHeight;
+      }
+   }
 
     // reset runahead
     runahead_skip = -runahead_speed;
@@ -2032,37 +2070,41 @@ static bool8 DrawFrame(int width, int height)
 
 bool8 S9xDeinitUpdate(int width, int height)
 {
+   if (fast_loading_active) return TRUE;
    if (runahead_skip > 0) return TRUE;
 
-	 //if(log_cb) log_cb(RETRO_LOG_INFO,"normal %d %d\n", GFX.InterlaceFrame, Memory.FillRAM[0x213F]>>7);
+
+   //if(log_cb) log_cb(RETRO_LOG_INFO,"normal %d %d\n", GFX.InterlaceFrame, Memory.FillRAM[0x213F]>>7);
 
    if (GFX.DoInterlace)
    {
-		  // skip even frames
+      // skip even frames
       if (interlace_speed == 2)
          return TRUE;
-	 
-	    if(!Settings.DisableGameSpecificHacks && interlace_speed==0 && slow_interlace_hack==2)
-				 return TRUE;
-	 }
+   
+      if(!Settings.DisableGameSpecificHacks && interlace_speed==0 && slow_interlace_hack==2)
+         return TRUE;
+   }
 
    return DrawFrame(width, height);
 }
 
 bool8 S9xContinueUpdate(int width, int height)
 {
+   if (fast_loading_active) return TRUE;
    if (runahead_skip > 0) return TRUE;
 
-	 //if(log_cb) log_cb(RETRO_LOG_INFO,"interlace %d %d\n", GFX.InterlaceFrame, Memory.FillRAM[0x213F]>>7);
 
-	 // skip odd frames
-	 if (interlace_speed == 1)
-		  return TRUE;
-			 
-	 if(!Settings.DisableGameSpecificHacks && interlace_speed==0 && slow_interlace_hack==1)
-		  return TRUE;
+   //if(log_cb) log_cb(RETRO_LOG_INFO,"interlace %d %d\n", GFX.InterlaceFrame, Memory.FillRAM[0x213F]>>7);
 
-	 return DrawFrame(width, height);
+   // skip odd frames
+   if (interlace_speed == 1)
+      return TRUE;
+       
+   if(!Settings.DisableGameSpecificHacks && interlace_speed==0 && slow_interlace_hack==1)
+      return TRUE;
+
+   return DrawFrame(width, height);
 }
 
 // Dummy functions that should probably be implemented correctly later.
