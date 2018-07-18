@@ -8,6 +8,7 @@
 #include "gfx.h"
 #include "snapshot.h"
 #include "controls.h"
+#include "crosshairs.h"
 #include "cheats.h"
 #include "logger.h"
 #include "display.h"
@@ -89,6 +90,11 @@ int runahead_interlace_frame;
 int fast_loading = 0;
 int fast_loading_start = 0;
 bool fast_loading_active = false;
+
+int crosshair_superscope = 2;
+int crosshair_justifier1 = 4;
+int crosshair_justifier2 = 4;
+int crosshair_rifle = 2;
 
 
 #include "render.cpp"
@@ -194,12 +200,12 @@ void retro_set_environment(retro_environment_t cb)
       { "snes9x_up_down_allowed", "Allow opposing directions (Unsafe); disabled|enabled" },
       { "snes9x_blargg", "Blargg NTSC filter; disabled|monochrome|rf|composite|s-video|rgb" },
       { "snes9x_hires_blend", "Hires blending; disabled|half|full|special" },
-      { "snes9x_overclock_superfx", "SuperFX speed; 100%|150%|200%|250%|300%|350%|400%|450%|500%|50%" },
-      { "snes9x_overclock_cycles", "Reduce slowdown (Unsafe); disabled|compatible|max" },
+      { "snes9x_overclock_superfx", "SuperFX speed; 100%|150%|200%|250%|300%|400%|500%|50%" },
+      { "snes9x_overclock_cycles", "Reduce slowdown (Unsafe); disabled|fastrom|compatible|max" },
       { "snes9x_reduce_sprite_flicker", "Reduce flickering (Unsafe); disabled|enabled" },
       { "snes9x_raise_sprite_limit", "Raise sprite limit (Unsafe); disabled|enabled" },
       { "snes9x_randomize_memory", "Randomize memory (Unsafe); disabled|enabled" },
-      { "snes9x_audio_interpolation", "Audio interpolation; gaussian|gaussian (hq)|cubic|catmull-rom|sinc|sinc (hq)|none|linear" },
+      { "snes9x_audio_interpolation", "Audio interpolation; gaussian|gaussian (hq)|hermite (0.25)|hermite (0.375)|cubic|catmull-rom|hermite (0.75)|cubic spline|sinc|sinc (hq)|none|linear" },
       { "snes9x_layer_1", "Show layer 1; enabled|disabled" },
       { "snes9x_layer_2", "Show layer 2; enabled|disabled" },
       { "snes9x_layer_3", "Show layer 3; enabled|disabled" },
@@ -229,6 +235,14 @@ void retro_set_environment(retro_environment_t cb)
       { "snes9x_ignore_bios", "Ignore using BIOS; disabled|enabled" },
       { "snes9x_macsrifle_adjust_x", "M.A.C.S. Rifle - adjust aim x; 0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|-25|-24|-23|-22|-21|-20|-19|-18|-17|-16|-15|-14|-13|-12|-11|-10|-9|-8|-7|-6|-5|-4|-3|-2|-1" },
       { "snes9x_macsrifle_adjust_y", "M.A.C.S. Rifle - adjust aim y; 0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|-25|-24|-23|-22|-21|-20|-19|-18|-17|-16|-15|-14|-13|-12|-11|-10|-9|-8|-7|-6|-5|-4|-3|-2|-1" },
+      { "snes9x_crosshair_superscope", "Super Scope crosshair; 2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|0|1" },
+      { "snes9x_crosshair_superscope_color", "Super Scope color; White|Red|Orange|Yellow|Green|Cyan|Sky|Blue|Violet|MagicPink|Purple|tBlack|t25Grey|t50Grey|t75Grey|tWhite|tRed|tOrange|tYellow|tGreen|tCyan|tSky|tBlue|tViolet|tMagicPink|tPurple|Black|25Grey|50Grey|75Grey" },
+      { "snes9x_crosshair_justifier1", "Justifier 1 crosshair; 14|15|16|0|1|2|3|4|5|6|7|8|9|10|11|12|13" },
+      { "snes9x_crosshair_justifier1_color", "Justifier 1 color; Blue|Violet|MagicPink|Purple|tBlack|t25Grey|t50Grey|t75Grey|tWhite|tRed|tOrange|tYellow|tGreen|tCyan|tSky|tBlue|tViolet|tMagicPink|tPurple|Black|25Grey|50Grey|75Grey|White|Red|Orange|Yellow|Green|Cyan|Sky" },
+      { "snes9x_crosshair_justifier2", "Justifier 2 crosshair; 14|15|16|0|1|2|3|4|5|6|7|8|9|10|11|12|13" },
+      { "snes9x_crosshair_justifier2_color", "Justifier 2 color; MagicPink|Purple|tBlack|t25Grey|t50Grey|t75Grey|tWhite|tRed|tOrange|tYellow|tGreen|tCyan|tSky|tBlue|tViolet|tMagicPink|tPurple|Black|25Grey|50Grey|75Grey|White|Red|Orange|Yellow|Green|Cyan|Sky|Blue|Violet" },
+      { "snes9x_crosshair_rifle", "M.A.C.S. Rifle crosshair; 2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|0|1" },
+      { "snes9x_crosshair_rifle_color", "M.A.C.S. Rifle color; White|Red|Orange|Yellow|Green|Cyan|Sky|Blue|Violet|MagicPink|Purple|tBlack|t25Grey|t50Grey|t75Grey|tWhite|tRed|tOrange|tYellow|tGreen|tCyan|tSky|tBlue|tViolet|tMagicPink|tPurple|Black|25Grey|50Grey|75Grey" },
       {},
    };
 
@@ -331,7 +345,15 @@ static void update_variables(void)
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      if (strcmp(var.value, "compatible") == 0)
+      if (strcmp(var.value, "fastrom") == 0)
+      {
+         overclock_cycles = true;
+
+         one_c = 6;
+         slow_one_c = 6;
+         two_c = 12;
+      }
+      else if (strcmp(var.value, "compatible") == 0)
       {
          overclock_cycles = true;
 
@@ -412,20 +434,28 @@ static void update_variables(void)
          }
          fclose(fp);
       }
-      else if (strcmp(var.value, "cubic") == 0)
+      else if (strcmp(var.value, "hermite (0.25)") == 0)
          audio_interp_mode = 4;
-      else if (strcmp(var.value, "catmull-rom") == 0)
+      else if (strcmp(var.value, "hermite (0.375)") == 0)
          audio_interp_mode = 5;
-      else if (strcmp(var.value, "sinc") == 0)
+      else if (strcmp(var.value, "cubic") == 0)
          audio_interp_mode = 6;
-      else if (strcmp(var.value, "sinc (hq)") == 0 && oldval != 7)
+      else if (strcmp(var.value, "catmull-rom") == 0)
+         audio_interp_mode = 7;
+      else if (strcmp(var.value, "hermite (0.75)") == 0)
+         audio_interp_mode = 8;
+      else if (strcmp(var.value, "cubic spline") == 0)
+         audio_interp_mode = 9;
+      else if (strcmp(var.value, "sinc") == 0)
+         audio_interp_mode = 10;
+      else if (strcmp(var.value, "sinc (hq)") == 0 && oldval != 11)
       {
          sprintf(name,"%s/snes_sinc_hq.bin",retro_system_directory);
          FILE *fp = fopen(name,"rb");
          if(fp)
          {
             if(fread(audio_interp_custom,1,0x10000,fp))
-               audio_interp_mode = 7;
+               audio_interp_mode = 11;
 
             fclose(fp);
          }
@@ -435,21 +465,15 @@ static void update_variables(void)
       {
          switch(audio_interp_mode)
          {
-				 case 5:
-					  audio_interp_max = 37031;
-						break;
+				 case  5: audio_interp_max = 0x9100; break; //8ef7
+				 case  6: audio_interp_max = 0x9800; break; //9605
+         case  7: audio_interp_max = 0x9880; break; //9673
+         case  8: audio_interp_max = 0xa700; break; //a4a2
+         case  9: audio_interp_max = 0xb700; break; //b464
 
-         case 6:
-            audio_interp_max = 43630;
-            break;
-
-         case 7:
-            audio_interp_max = 91056;
-            break;
-
-         default:
-            audio_interp_max = 32768;
-            break;
+         case 10: audio_interp_max = 0xab80; break; //a9a8
+         case 11: audio_interp_max = 0x16500; break; //15fba
+         default: audio_interp_max = 32768; break;
 				 }
       }
    }
@@ -715,7 +739,83 @@ static void update_variables(void)
          ignore_bios = true;
    }
 
-   if (geometry_update)
+	 var.key="snes9x_crosshair_superscope";
+   var.value=NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      int newval;
+      if(sscanf(var.value,"%d",&newval))
+				 S9xSetControllerCrosshair(X_SUPERSCOPE, newval, 0, 0);
+   }
+
+	 var.key="snes9x_crosshair_superscope_color";
+   var.value=NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+		  if(var.value[0] != 't')
+	       S9xSetControllerCrosshair(X_SUPERSCOPE, -1, var.value, "Black");
+			else
+	       S9xSetControllerCrosshair(X_SUPERSCOPE, -1, var.value, "tBlack");
+   }
+
+	 var.key="snes9x_crosshair_justifier1";
+   var.value=NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      int newval;
+      if(sscanf(var.value,"%d",&newval))
+				 S9xSetControllerCrosshair(X_JUSTIFIER1, newval, 0, 0);
+   }
+
+	 var.key="snes9x_crosshair_justifier1_color";
+   var.value=NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+		  if(var.value[0] != 't')
+	       S9xSetControllerCrosshair(X_JUSTIFIER1, -1, var.value, "Black");
+			else
+	       S9xSetControllerCrosshair(X_JUSTIFIER1, -1, var.value, "tBlack");
+   }
+
+	 var.key="snes9x_crosshair_justifier2";
+   var.value=NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      int newval;
+      if(sscanf(var.value,"%d",&newval))
+				 S9xSetControllerCrosshair(X_JUSTIFIER2, newval, 0, 0);
+   }
+
+	 var.key="snes9x_crosshair_justifier2_color";
+   var.value=NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+		  if(var.value[0] != 't')
+	       S9xSetControllerCrosshair(X_JUSTIFIER2, -1, var.value, "Black");
+			else
+	       S9xSetControllerCrosshair(X_JUSTIFIER2, -1, var.value, "tBlack");
+   }
+
+	 var.key="snes9x_crosshair_rifle";
+   var.value=NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      int newval;
+      if(sscanf(var.value,"%d",&newval))
+				 S9xSetControllerCrosshair(X_MACSRIFLE, newval, 0, 0);
+   }
+
+	 var.key="snes9x_crosshair_rifle_color";
+   var.value=NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+		  if(var.value[0] != 't')
+	       S9xSetControllerCrosshair(X_MACSRIFLE, -1, var.value, "Black");
+			else
+	       S9xSetControllerCrosshair(X_MACSRIFLE, -1, var.value, "tBlack");
+   }
+
+	 if (geometry_update)
       update_geometry();
 }
 
