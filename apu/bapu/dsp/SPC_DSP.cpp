@@ -455,7 +455,7 @@ inline int SPC_DSP::interpolate( voice_t const* v )
 			break;
 		}
 
-		// gaussian (brr overflow)
+		// gaussian (hardware)
 		case 2: {
 			// Make pointers into gaussian based on fractional position between samples
 			int offset = v->interp_pos >> 4 & 0xFF;
@@ -490,13 +490,13 @@ inline int SPC_DSP::interpolate( voice_t const* v )
 			break;
 		}
 
-		// cubic
-		case 4: {
+		// cubic (mudlord)
+		case 6: {
 			// Make pointers into cubic based on fractional position between samples
 			int offset = v->interp_pos >> 4 & 0xFF;
 			short const* fwd = cubic       + offset;
 			short const* rev = cubic + 256 - offset; // mirror left half of cubic
-        
+
 			int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
 			out  = fwd [  0] * in [0];
 			out += fwd [257] * in [1];
@@ -506,29 +506,52 @@ inline int SPC_DSP::interpolate( voice_t const* v )
 			break;
 		}
 
-		// catmull-rom = cubic hermite spline @ 0.50
-		case 5: {
+		// hermite
+		case 4:
+		case 5:
+		case 7:
+		case 8:
+		case 9: {
 			// 0.12 -- 16.0
 			int offset = v->interp_pos & 0xFFF;
 			int const* in = &v->buf [(v->interp_pos >> 12) + v->buf_pos];
+			int tension;
+
+			switch(audio_interp_mode)
+			{
+			case 4: tension = 2; break;
+			case 5: tension = 3; break;
+			case 7: tension = 4; break;
+			case 8: tension = 6; break;
+			default: tension = 8; break;
+			}
+
+			/*
+			a = tension [0..1]
+
+			-a  2-a  a-2    a
+			2a  a-3  3-2a  -a
+			-a   0    a     0
+			 0   1    0     0
+			*/
 
 			int A=in[0], B=in[1], C=in[2], D=in[3];
-			int a = -A + 3*B - 3*C + D;
-			int b = 2*A - 5*B + 4*C - D;
-			int c = -A + C;
-			int d = 2*B;
+			int a = (((-A - B + C + D) * tension) / 8) + (2*B - 2*C);
+			int b = (((2*A + B - 2*C - D) * tension) / 8) + (-3*B + 3*C);
+			int c = ((-A + C) * tension) / 8;
+			int d = B;
 
-			int temp;
-			temp = (a * offset) / 0x1000;
-			temp = ((b + temp) * offset) / 0x1000;
-			temp = ((c + temp) * offset) / 0x1000;
-			temp = d + temp;
-			out = 0.5 * temp;
+			int temp = 0;
+			temp = ((a+temp) * offset) / 0x1000;
+			temp = ((b+temp) * offset) / 0x1000;
+			temp = ((c+temp) * offset) / 0x1000;
+			temp =  (d+temp);
+			out = temp;
 			break;
 		}
 
-		// sinc
-		case 6: {
+		// sinc (mudlord)
+		case 10: {
 			// Make pointers into cubic based on fractional position between samples
 			int offset = v->interp_pos & 0xFF0;
 			short const* filt = (short const*) (((char const*)sinc) + offset);
@@ -547,7 +570,7 @@ inline int SPC_DSP::interpolate( voice_t const* v )
 		}
    
 		// sinc (hq)
-		case 7: {
+		case 11: {
 			// Make pointers into sinc based on fractional position between samples
 			int offset = v->interp_pos & 0xFFF;
 			short const* filt = (short const*) (((char const*)audio_interp_custom) + offset*8*2);
