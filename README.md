@@ -3,11 +3,12 @@
 sandbox of www.github.com/libretro/snes9x (pre-1.56 rebase) for testing experimental features (meant for having fun only!!) -      ideally not recommended for upstream core inclusion (seriously, it's going to be messy clutter!)
 
 
-dropoff 7 preview1:
+dropoff 7 preview2:
 - fast loading
-- catmull-rom (hermite) interpolation
+- hermite, catmull-rom interpolation
 - better default interpolation limits, tweak hq tables
 - fix snes device hotplugging
+- lightgun cursor options
 
 
 dropoff 6:
