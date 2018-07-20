@@ -457,7 +457,7 @@ void S9xSetPPU (uint8 Byte, uint16 Address)
 							extern bool fast_loading_active;
 							extern int fast_loading_start;
 
-							fast_loading_start = 2;
+							fast_loading_start = 5+1;
 							fast_loading_active = false;
 						}
 					}
