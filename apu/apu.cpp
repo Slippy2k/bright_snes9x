@@ -207,6 +207,12 @@
 #define APU_NUMERATOR_PAL			34176
 #define APU_DENOMINATOR_PAL			709379
 
+#ifdef __LIBRETRO__
+#include "libretro/libretro.h"
+extern retro_log_printf_t log_cb;
+#endif
+
+
 namespace SNES
 {
 #include "bapu/dsp/blargg_endian.h"
@@ -479,11 +485,21 @@ static void UpdatePlaybackRate (void)
 	double time_ratio = (double) Settings.SoundInputRate * spc::timing_hack_numerator / (Settings.SoundPlaybackRate * spc::timing_hack_denominator);
 	spc::resampler->time_ratio(time_ratio);
 
+	/*
+	if(log_cb) log_cb(RETRO_LOG_INFO,"SPC ratio = %d - %d - %d - %d - %f\n",
+		Settings.SoundInputRate, Settings.SoundPlaybackRate, spc::timing_hack_numerator, spc::timing_hack_denominator, time_ratio);
+	*/
+
 	if (Settings.MSU1)
 	{
 		time_ratio = (44100.0 / Settings.SoundPlaybackRate) * (Settings.SoundInputRate / 32040.0);
 		msu::resampler->time_ratio(time_ratio);
 	}
+}
+
+void S9xUpdatePlaybackRate()
+{
+	UpdatePlaybackRate();
 }
 
 bool8 S9xInitSound (int buffer_ms, int lag_ms)

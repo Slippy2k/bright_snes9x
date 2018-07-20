@@ -5,6 +5,9 @@
 
 #include "resampler.h"
 
+extern int audio_output_method;
+extern float audio_output_max;
+
 #undef CLAMP
 #undef SHORT_CLAMP
 #define CLAMP(x, low, high) (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))
@@ -21,20 +24,96 @@ class HermiteResampler : public Resampler
         static inline float
         hermite (float mu1, float a, float b, float c, float d)
         {
-            float mu2, mu3, m0, m1, a0, a1, a2, a3;
+					float out = 0;
 
-            mu2 = mu1 * mu1;
-            mu3 = mu2 * mu1;
+					switch(audio_output_method) {
+						// default
+						case 0: {
+							float mu2, mu3, m0, m1, a0, a1, a2, a3;
 
-            m0 = (c - a) * 0.5;
-            m1 = (d - b) * 0.5;
+							mu2 = mu1 * mu1;
+							mu3 = mu2 * mu1;
 
-            a0 = +2 * mu3 - 3 * mu2 + 1;
-            a1 =      mu3 - 2 * mu2 + mu1;
-            a2 =      mu3 -     mu2;
-            a3 = -2 * mu3 + 3 * mu2;
+							m0 = (c - a) * 0.5;
+							m1 = (d - b) * 0.5;
 
-            return (a0 * b) + (a1 * m0) + (a2 * m1) + (a3 * c);
+							a0 = +2 * mu3 - 3 * mu2 + 1;
+							a1 =      mu3 - 2 * mu2 + mu1;
+							a2 =      mu3 -     mu2;
+							a3 = -2 * mu3 + 3 * mu2;
+
+							out = (a0 * b) + (a1 * m0) + (a2 * m1) + (a3 * c);
+							break;
+						}
+
+						// linear
+						case 1: {
+							out = (1.0 - mu1) * b + (mu1 * c);
+							break;
+						}
+
+						// hermite
+						case 2:
+						case 3:
+						case 4:
+						case 5:
+						case 6:
+						case 7: {
+							// 0.12 -- 16.0
+							int tension;
+
+							switch(audio_output_method)
+							{
+							case 2: tension = 0.250; break;
+							case 3: tension = 0.300; break;
+							case 4: tension = 0.350; break;
+							case 5: tension = 0.500; break;
+							case 6: tension = 0.750; break;
+							default: tension = 0.1000; break;
+							}
+
+							/*
+							a = tension [0..1]
+
+							-a  2-a  a-2    a
+							2a  a-3  3-2a  -a
+							-a   0    a     0
+							 0   1    0     0
+							*/
+
+							float A=a, B=b, C=c, D=d;
+							float a_ = ((-A - B + C + D) * tension) + (2*B - 2*C);
+							float b_ = ((2*A + B - 2*C - D) * tension) + (-3*B + 3*C);
+							float c_ = (-A + C) * tension;
+							float d_ = B;
+
+							float temp = 0;
+							temp = (a_+temp) * mu1;
+							temp = (b_+temp) * mu1;
+							temp = (c_+temp) * mu1;
+							temp =  d_+temp;
+							out = temp;
+							break;
+						}
+					}	// switch
+
+					float out_max = out;
+					out *= 32768.0;
+					out /= audio_output_max;
+
+					if( out > 32767.0 ) {
+						if(log_cb) log_cb(RETRO_LOG_INFO,"output audio max = %X (%d %d)\n",out_max,audio_output_max,out);
+						audio_output_max = out_max;
+						out = 32767.0;
+					}
+
+					else if( out < -32768.0 ) {
+						if(log_cb) log_cb(RETRO_LOG_INFO,"output audio max = -%X (%d %d)\n",-out_max,audio_output_max,out);
+						audio_output_max = -out_max;
+						out = -32768.0;
+					}
+
+					return out;
         }
 
     public:
