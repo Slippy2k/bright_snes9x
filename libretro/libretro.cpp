@@ -88,13 +88,17 @@ int runahead_interlace;
 int runahead_interlace_frame;
 
 int fast_loading = 0;
-int fast_loading_start = 0;
+int fast_loading_start = 5;
 bool fast_loading_active = false;
 
 int crosshair_superscope = 2;
 int crosshair_justifier1 = 4;
 int crosshair_justifier2 = 4;
 int crosshair_rifle = 2;
+
+static bool audio_output_reset = 0;
+int audio_output_method = 0;
+float audio_output_max = 32768.0;
 
 
 #include "render.cpp"
@@ -205,7 +209,9 @@ void retro_set_environment(retro_environment_t cb)
       { "snes9x_reduce_sprite_flicker", "Reduce flickering (Unsafe); disabled|enabled" },
       { "snes9x_raise_sprite_limit", "Raise sprite limit (Unsafe); disabled|enabled" },
       { "snes9x_randomize_memory", "Randomize memory (Unsafe); disabled|enabled" },
-      { "snes9x_audio_interpolation", "Audio interpolation; gaussian|gaussian (hq)|hermite (0.25)|hermite (0.375)|cubic|catmull-rom|hermite (0.75)|cubic spline|sinc|sinc (hq)|none|linear" },
+      { "snes9x_audio_interpolation", "Audio interpolation; gaussian|gaussian (hq)|hermite (0.25)|hermite (0.30)|hermite (0.35)|cubic|catmull-rom|hermite (0.75)|cubic spline|sinc|sinc (hq)|none|linear" },
+      { "snes9x_output_rate", "Output audio rate; 32040|44100|48000|96000|11025|22050" },
+      { "snes9x_output_method", "Output resampler; default|linear|hermite (0.25)|hermite (0.30)|hermite (0.35)|catmull-rom|hermite (0.75)|cubic spline" },
       { "snes9x_layer_1", "Show layer 1; enabled|disabled" },
       { "snes9x_layer_2", "Show layer 2; enabled|disabled" },
       { "snes9x_layer_3", "Show layer 3; enabled|disabled" },
@@ -274,6 +280,13 @@ void retro_set_environment(retro_environment_t cb)
    environ_cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void*)ports);
 }
 
+void update_system(void)
+{
+   struct retro_system_av_info av_info;
+   retro_get_system_av_info(&av_info);
+   environ_cb(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &av_info);
+}
+
 void update_geometry(void)
 {
    struct retro_system_av_info av_info;
@@ -299,7 +312,7 @@ static void update_variables(void)
       else if (strcmp(var.value, "normal") == 0)
         fast_loading = 30;
 
-      fast_loading_start = 2;
+      fast_loading_start = 5;
       fast_loading_active = false;
    }
 
@@ -431,31 +444,34 @@ static void update_variables(void)
          {
             if(fread(audio_interp_custom,1,0x8000,fp))
                audio_interp_mode = 3;
+
+	          fclose(fp);
          }
-         fclose(fp);
       }
       else if (strcmp(var.value, "hermite (0.25)") == 0)
          audio_interp_mode = 4;
-      else if (strcmp(var.value, "hermite (0.375)") == 0)
+      else if (strcmp(var.value, "hermite (0.30)") == 0)
          audio_interp_mode = 5;
-      else if (strcmp(var.value, "cubic") == 0)
+      else if (strcmp(var.value, "hermite (0.35)") == 0)
          audio_interp_mode = 6;
-      else if (strcmp(var.value, "catmull-rom") == 0)
+      else if (strcmp(var.value, "cubic") == 0)
          audio_interp_mode = 7;
-      else if (strcmp(var.value, "hermite (0.75)") == 0)
+      else if (strcmp(var.value, "catmull-rom") == 0)
          audio_interp_mode = 8;
-      else if (strcmp(var.value, "cubic spline") == 0)
+      else if (strcmp(var.value, "hermite (0.75)") == 0)
          audio_interp_mode = 9;
-      else if (strcmp(var.value, "sinc") == 0)
+      else if (strcmp(var.value, "cubic spline") == 0)
          audio_interp_mode = 10;
-      else if (strcmp(var.value, "sinc (hq)") == 0 && oldval != 11)
+      else if (strcmp(var.value, "sinc") == 0)
+         audio_interp_mode = 11;
+      else if (strcmp(var.value, "sinc (hq)") == 0 && oldval != 12)
       {
          sprintf(name,"%s/snes_sinc_hq.bin",retro_system_directory);
          FILE *fp = fopen(name,"rb");
          if(fp)
          {
             if(fread(audio_interp_custom,1,0x10000,fp))
-               audio_interp_mode = 11;
+               audio_interp_mode = 12;
 
             fclose(fp);
          }
@@ -465,14 +481,16 @@ static void update_variables(void)
       {
          switch(audio_interp_mode)
          {
+				 case  4: audio_interp_max = 0x8900; break; //87fe
 				 case  5: audio_interp_max = 0x9100; break; //8ef7
-				 case  6: audio_interp_max = 0x9800; break; //9605
-         case  7: audio_interp_max = 0x9880; break; //9673
-         case  8: audio_interp_max = 0xa700; break; //a4a2
-         case  9: audio_interp_max = 0xb700; break; //b464
+				 case  6: audio_interp_max = 0x9100; break; //8ef7
+				 case  7: audio_interp_max = 0x9800; break; //9605
+         case  8: audio_interp_max = 0x9880; break; //9673
+         case  9: audio_interp_max = 0xa700; break; //a4a2
+         case 10: audio_interp_max = 0xb700; break; //b464
 
-         case 10: audio_interp_max = 0xab80; break; //a9a8
-         case 11: audio_interp_max = 0x16500; break; //15fba
+         case 11: audio_interp_max = 0xab80; break; //a9a8
+         case 12: audio_interp_max = 0x16500; break; //15fba
          default: audio_interp_max = 32768; break;
 				 }
       }
@@ -815,6 +833,56 @@ static void update_variables(void)
 	       S9xSetControllerCrosshair(X_MACSRIFLE, -1, var.value, "tBlack");
    }
 
+	 var.key="snes9x_output_rate";
+   var.value=NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+			int newval = 0;
+      sscanf(var.value,"%d",&newval);
+		  
+			if (newval != Settings.SoundPlaybackRate)
+			{
+				 if (log_cb) log_cb(RETRO_LOG_INFO, "Audio reset %d -> %d\n", Settings.SoundPlaybackRate, newval);
+         Settings.SoundPlaybackRate = newval;
+				 
+				 audio_output_reset = 1;
+			}
+   }
+
+   var.key = "snes9x_output_method";
+   var.value = NULL;
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      static char name[PATH_MAX + 1];
+      int oldval = audio_output_method;
+
+      if (strcmp(var.value, "default") == 0)
+         audio_output_method = 0;
+      else if (strcmp(var.value, "linear") == 0)
+         audio_output_method = 1;
+      else if (strcmp(var.value, "hermite (0.25)") == 0)
+         audio_output_method = 2;
+      else if (strcmp(var.value, "hermite (0.30)") == 0)
+         audio_output_method = 3;
+      else if (strcmp(var.value, "hermite (0.35)") == 0)
+         audio_output_method = 4;
+      else if (strcmp(var.value, "catmull-rom") == 0)
+         audio_output_method = 5;
+      else if (strcmp(var.value, "hermite (0.75)") == 0)
+         audio_output_method = 6;
+      else if (strcmp(var.value, "cubic spline") == 0)
+         audio_output_method = 7;
+
+      if (oldval != audio_output_method)
+      {
+         switch(audio_output_method)
+         {
+         default: audio_output_max = 32768.0; break;
+				 }
+      }
+   }
+
 	 if (geometry_update)
       update_geometry();
 }
@@ -826,7 +894,7 @@ static void S9xAudioCallback(void*)
    static int16_t audio_buf[BUFFER_SIZE];
 
    S9xFinalizeSamples();
-   size_t avail = S9xGetSampleCount();
+   int avail = (int) S9xGetSampleCount();
    while (avail >= BUFFER_SIZE)
    {
       //this loop will never be entered, but handle oversized sample counts just in case
@@ -899,7 +967,7 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
    info->geometry.max_width = MAX_SNES_WIDTH_OUT;
    info->geometry.max_height = MAX_SNES_HEIGHT;
    info->geometry.aspect_ratio = get_aspect_ratio(width, height);
-   info->timing.sample_rate = 32040;
+	 info->timing.sample_rate = Settings.SoundPlaybackRate;
    info->timing.fps = retro_get_region() == RETRO_REGION_NTSC ? 21477272.0 / 357366.0 : 21281370.0 / 425568.0;
 }
 
@@ -1559,6 +1627,11 @@ void retro_init(void)
    Settings.AutoSaveDelay = 1;
    Settings.DontSaveOopsSnapshot = TRUE;
 
+	 
+	 update_variables();
+	 audio_output_reset = 0;
+
+
    CPU.Flags = 0;
 
    if (!Memory.Init() || !S9xInitAPU())
@@ -1826,6 +1899,15 @@ void retro_run()
    bool updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated)) {
       if (updated) update_variables();
+
+			if (audio_output_reset)
+			{
+         extern void S9xUpdatePlaybackRate();
+	       update_system();
+			   S9xUpdatePlaybackRate();
+
+				 audio_output_reset = 0;
+			}
    }
    if (height != PPU.ScreenHeight)
    {
